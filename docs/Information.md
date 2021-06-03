@@ -1,7 +1,7 @@
 # Information
 Sharing some useful information
 
-- [basic](https://github.com/verlandz/nginx/blob/master/docs/1.%20Basic.md)
+- [basic](https://github.com/verlandz/nginx/blob/main/docs/Basic.md)
 - [location](https://www.keycdn.com/support/nginx-location-directive)
 - [location priority](https://stackoverflow.com/a/5238430)
 - [nested location](https://serverfault.com/a/627309)
