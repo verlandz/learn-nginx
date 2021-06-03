@@ -1,0 +1,344 @@
+### DISCLAIMER ###
+# this configuration for testing purpose only
+# any changes need to be reloaded (nginx -s reload)
+# if reload doesn't work try to restart (service nginx restart)
+# these guide only cover some of nginx modules
+# everything under "##" is highlighted 
+
+## ALIAS ##
+# please add this in your /etc/hosts for alias
+#   127.0.0.1	mynginx.com www.mynginx.com
+# it will help to resolve the dns to ip
+
+
+## CACHE - SETUP ##
+# to decrease latency, load and bandwidth
+# the variable's determined by keys_zone
+# you can locate in SSD/HDD depends on your strategy
+proxy_cache_path /var/cache/nginx/mynginx keys_zone=mynginx:100m levels=1:2 inactive=60m max_size=5m;
+
+## RATE LIMIT - SETUP ##
+# limiting incoming request
+# 5req/s = 1req/200ms
+# nginx track by ms, so if there req come < 200ms after the last one, will be rejected(503)
+limit_req_zone $binary_remote_addr zone=big_limit:10m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=small_limit:10m rate=1r/s;
+
+## LOG - SETUP ##
+log_format mynginx  '$remote_addr - $remote_user [$time_local] [$status] $request ($body_bytes_sent bytes) '
+                    '"$http_referer" $upstream_addr ($upstream_response_time ms) "$http_user_agent"';
+
+## UPSTREAM ##
+# as loadbalancer using roundrobin
+# max_fails looks like "circuit breaker"
+# try: for((i=1;i<=100;i++)); do curl "http://www.mynginx.com"; done
+upstream backend {
+    server 127.0.0.1:8080 max_fails=0;
+    # server 127.0.0.1:8081 max_fails=0; #uncomment this for test loadbalancer
+}
+
+## MAP ##
+# creates variables whose values depend on values of other variables
+# it also supports RE
+map $http_user_agent $bad_agent {
+    default     0;
+    "~*firefox" 1;
+}
+
+## GEO ##
+# creates variables with values depending on the client IP address
+# which by default taken from $remote_addr, from below example it's equal to;
+#   geo $remote_addr $bad_geo
+geo $bad_geo {
+    default     1;
+    127.0.0.1   0;
+}
+
+## SPLIT CLIENTS - SETUP ##
+# useful for ab test, migration, etc.
+# the distribution base on hash on the key using murmurhash2
+# we use $time_iso8601 instead $remote_addr since localhost always same (127.0.0.1)
+split_clients "$time_iso8601" $abtest {
+    25% "a";
+    *  "b";
+}
+
+# HTTP www.mynginx.com
+server {
+    ## LISTEN ##
+    # listen to what port
+    # [::] is for IPv6
+    # try: netstat -tulpan | grep nginx
+    listen 80;
+    listen [::]:80;
+
+    ## SERVER NAME ##
+    # it's possible to have more than 1 server_name in one line, ex;
+    #   server_name mynginx.com www.mynginx.com other.mynginx.com;
+    server_name www.mynginx.com;
+
+    ## ALLOW + DENY ##
+    # restrict some IP
+    allow 127.0.0.1;
+    deny all;
+
+    ## LOG ##
+    access_log /var/log/nginx/mynginx.access.log mynginx;
+    error_log /var/log/nginx/mynginx.error.log;
+
+    ## ERROR PAGE ##
+    error_page 400 403 404 500 503 /error;
+    location = /error { 
+        ## INTERNAL ##
+        # tell that you can't access it from outside except from "error_page, index, random_index, and try_files"
+        # for external request, it will return 404
+        # ex(on): http://www.mynginx.com/error (status:404)
+        # ex(off): http://www.mynginx.com/error (status:000)
+        internal;
+
+        ## DEFAULT_TYPE ##
+        # by default is text/plain; and if your $uri has extension, it will adjust itself
+        # but if no, you need to adjust it manually
+        default_type html;
+
+        ## ALIAS ##
+        # it will remap URL's location, but only ignoring pattern location
+        alias "/var/www/mynginx/html/errors/$status.html";
+    }
+
+    ## IF ##
+    # note: you must read why "if is evil"
+    if ($bad_agent) {
+        ## RETURN ##
+        # stop and return the status code to client (default: 302)
+        # it can be combined with code, URL and text (see the syntax)
+        return 403;
+    }
+
+    if ($bad_geo) {
+        return 403;
+    }
+
+    ## LOCATION ##
+    # (/) is without modifier and will count as prefix
+    location / {
+        ## PROXY PASS ##
+        # is reverse proxy
+        default_type application/json;
+        proxy_pass "http://backend";
+    }
+
+    # RE; (~) is case-sensitive and (~*) for case-insensitive
+    location ~ ^.*\.(jpe?g|png|gif)$ {
+        return 403;
+    }
+
+    # (^~) will match non-regular expression match
+    # once it matched, it will stop searching
+    # ex: http://www.mynginx.com/image/cat.jpg | http://www.mynginx.com/image/a.jpg | http://www.mynginx.com/image/cat.jpg?a=1&b=2
+    location ^~ /image/ {
+        ## ROOT ##
+        # specifies the actual document root
+        root /var/www/mynginx/images;
+        
+        ## REWRITE ##
+        # modify the $uri as "replacement" (only if RE matched)
+        # the query string still follow, the $1 come from RE's parentheses
+        # ex: $uri = /image/a.jpg -> /a.jpg
+        rewrite ^\/image\/(.*\.(jpe?g|png|gif))$ /$1 break;
+
+        ## TRY FILES ##
+        # will try to search the files until the end of given option
+        # syntax: try_files file1 file2 ... uri;
+        try_files $uri $uri/ /image/default.png;
+    }
+
+    # (=) must exactly match with URI
+    # once it matched, it will stop searching
+    location = /image/default.png {
+        ## SET ##
+        # create a variable, however it has some limitation
+        set $default_image_path "/var/www/mynginx/images/default.png";
+        alias $default_image_path;
+    }
+
+    ## INDEX ##
+    # like default page, but "only apply if a directory is tested"
+    # ex: $uri/ -> will test $uri/index.html
+    location /html {
+        root /var/www/mynginx;
+        index myindex.html;
+        try_files $uri $uri/ =404;
+    }
+
+    ## NESTED LOCATION ##
+    # note: all child in nested must have parent path
+    location /redirect {
+        # replacing last path (last /) to assigned dest
+        # ex: http://www.mynginx.com/redirect/soft -> http://www.mynginx.com/redirect/john-doe -> http://www.mynginx.com/error (400)
+        location /redirect/soft {
+            return 307 "john-doe";
+        }
+
+        # replacing full path to assigned dest alongside with "query string" (by default no)
+        # ex: http://www.mynginx.com/redirect/hard?a=1&b=1 -> http://www.mynginx.com/name/john-doe?a=1&b=1
+        location /redirect/hard {
+            return 307 "/name/john-doe$is_args$args";
+        }
+
+        # redirect temp to other page with modify "query string" (by default no)
+        # ex: http://mynginx/redirect/other?a=1&b=2 -> https://http.cat/?test=1-2
+        location /redirect/other {
+            return 307 "https://http.cat?ab=$arg_a+$arg_b";
+        }
+
+        # redirect permanently to other page
+        location /redirect/permanent {
+            # try to switch the dest, then reload the nginx
+            # the client "browser" might still cache the previous one
+            #   you can clear the cache in dev tools
+            
+            return 301 https://www.google.com/;
+            # return 301 https://www.youtube.com/;
+        }
+
+        return 400;
+    }
+
+    ## CACHE ##
+    # "proxy_cache_convert_head" can on/off conversion from HEAD to GET for cache
+    # "proxy-no-cache" not storing cache
+    # "proxy_cache_bypass" bypass the cache
+    proxy_cache_convert_head off;
+
+    # how to use "server cache"
+    location = /cache {
+        # using what cache
+        proxy_cache mynginx;
+
+        # since we already know the result is fixed regardless of everything
+        # we can just use $uri (not $request_uri, to avoid diff query_string case)
+        proxy_cache_key $uri;
+
+        # cache for 30m if code = 200
+        proxy_cache_valid 200 30m;
+
+        ## ADD HEADER ##
+        # send header to client
+        # note: prefix "X" means non-standard header
+        # in this case, it will help you to know if your request is using cache / no
+        # try to curl and you'll see either MISS / HIT
+        add_header X-Cache $upstream_cache_status;
+
+        ## PROXY SET HEADER ##
+        # send header to server
+        proxy_set_header Host $host;
+        proxy_set_header Hello "World";
+
+        proxy_pass "http://backend";
+    }
+
+    # how to use "client cache"
+    # note: it won't work if client reload / hard-reload / delete cache / curl
+    # if it work, you'll get like this:
+    #   Status Code: 200 OK (from disk cache)
+    # ex: 
+    #   1. open new browser tab + inspect element (tab:network)
+    #   2. in that browser go to http://www.mynginx.com/client-cache
+    #   3. You'll get 200 OK
+    #   4. repeat 1-3, and you will get 200 OK (from disk cache)
+    location = /client-cache {
+        ## EXPIRES ##
+        # determine when cache client must be clear
+        # ex (in resp headers):
+        #   Cache-Control: max-age=600
+        #   Date: Wed, 19 May 2021 12:13:38 GMT
+        #   Expires: Wed, 19 May 2021 12:23:38 GMT
+        #expires 10m;
+
+        ## Cache-Control ##
+        # advance level of expires but give more option like how to cache / behavior
+        # ex (in resp headers):
+        #    Cache-Control: public, max-age=600
+        add_header Cache-Control "public, max-age=600";
+
+        proxy_pass "http://backend";
+    }
+
+    ## RATE LIMIT ##
+    # try: for((i=1;i<=100;i++)); do curl "http://www.mynginx.com/rate-limit"; done
+    # "burst" is queue of bursting request (put in slot) and will clear it one by one every designed ms
+    # "nodelay" is like credit card, it will forward immediately as long there's slot then occupy the slot after forward for designed ms
+    # "delay=N" will "nodelay" the first N and "delay" the others. You can see it will fast at first, then slow down.
+    location = /rate-limit {
+        # limit_req zone=big_limit burst=10 delay=9;
+        limit_req zone=big_limit burst=10 nodelay;
+        limit_req_log_level warn;
+        
+        proxy_pass "http://backend";
+    }
+
+    ## AUTH ##
+    # although usually in apps itself has its own auth
+
+    # "auth-basic"
+    # the user & pass is located in /etc/nginx/.htpasswd
+    # to generate that you can use openssl / apache2-utils / etc.
+    # ex:
+    #   echo -n 'admin:' >> /etc/nginx/.htpasswd
+    #   openssl passwd >> /etc/nginx/.htpasswd
+    # ref: 
+    #   https://www.digitalocean.com/community/tutorials/how-to-set-up-password-authentication-with-nginx-on-ubuntu-14-04
+    location /auth-basic {
+        auth_basic "VIP's Area";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass "http://backend/name/from-basic";
+    }
+
+    ## STUB STATUS ##
+    # provide current basic status information of nginx
+    location = /_status {
+        stub_status;
+    }
+
+    ## SPLIT CLIENTS ##
+    # try: for((i=1;i<=10;i++)); do curl "http://www.mynginx.com/test"; done
+    location = /test {
+        # to support diff value from $time_iso8601, we can add delay from rate limit
+        limit_req zone=small_limit burst=2 delay=1;
+
+        proxy_pass "http://backend/test/$abtest";
+    }
+}
+
+# HTTPS www.mynginx.com
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name www.mynginx.com;
+
+    # certificate (self-signed)
+    ssl_certificate     /etc/ssl/certs/mynginx.crt;
+    ssl_certificate_key /etc/ssl/private/mynginx.key;
+
+    # you can add more conf for ssl like these links
+    # https://www.digitalocean.com/community/tutorials/how-to-create-a-self-signed-ssl-certificate-for-nginx-on-centos-7
+    # https://www.techrepublic.com/article/how-to-enable-ssl-on-nginx/
+    # https://dev.to/can_atac/implement-https-for-api-access-on-localhost-with-nginx-22e6
+
+    location / {
+        proxy_pass  "http://backend";
+    }
+}
+
+# HTTP/HTTPS mynginx.com
+# this for redirect any mynginx.com to www.mynginx.com
+server {
+    listen 80;
+    listen [::]:80;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name mynginx.com;
+
+    return 301 "$scheme://www.$server_name$request_uri";
+}
