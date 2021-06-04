@@ -28,7 +28,7 @@ Sharing some useful information
 - root vs alias
 [[1]](https://serverfault.com/a/1035737)
 [[2]](https://stackoverflow.com/a/10647080)
-- [if is evil](https://www.nginx.com/resources/wiki/start/topics/depth/ifisevil/)
+- [if is evil in location context](https://www.nginx.com/resources/wiki/start/topics/depth/ifisevil/)
 - rewrite
 [[1]](https://nginx.org/en/docs/http/ngx_http_rewrite_module.html#rewrite)
 [[2]](https://www.thegeekstuff.com/2017/08/nginx-rewrite-examples/)
@@ -51,10 +51,12 @@ Sharing some useful information
 [[2]](https://stackoverflow.com/a/55336670)
 [[3]](https://stackoverflow.com/questions/6236078/how-to-clear-the-cache-of-nginx)
 - [expires vs cache control](https://stackoverflow.com/questions/5799906/what-s-the-difference-between-expires-and-cache-control-headers#:~:text=7%20Answers&text=Cache%2DControl%20was%20introduced%20in,after%20the%20page%20was%20requested%22.)
-- [why > 1 user agent in header response](https://security.stackexchange.com/questions/)
+- [why > 1 user agent in header response](https://stackoverflow.com/questions/1114254/why-do-all-browsers-user-agents-start-with-mozilla)
 - [load balancer](http://nginx.org/en/docs/http/ngx_http_upstream_module.html#upstream)
 - [000](https://stackoverflow.com/questions/9791684/what-is-http-status-code-000/40687366)
-- [302 vs 307](https://stackoverflow.com/questions/2068418/whats-the-difference-between-a-302-and-a-307-redirect)
+- redirect status code comparison
+[[1]](https://stackoverflow.com/a/55008140)
+[[2]](https://stackoverflow.com/a/58492986)
 - [rate limit](https://www.nginx.com/blog/rate-limiting-nginx/)
 - [map](http://nginx.org/en/docs/http/ngx_http_map_module.html)
 - [geo](http://nginx.org/en/docs/http/ngx_http_geo_module.html)

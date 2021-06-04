@@ -1,7 +1,7 @@
 ### DISCLAIMER ###
 # this configuration for testing purpose only
-# any changes need to be reloaded (nginx -s reload)
-# if reload doesn't work try to restart (service nginx restart)
+# - any changes need to be reloaded (nginx -s reload)
+# - if reload doesn't work try to restart (service nginx restart)
 # these guide only cover some of nginx modules
 # everything under "##" is highlighted 
 
@@ -10,6 +10,7 @@
 #   127.0.0.1	mynginx.com www.mynginx.com
 # it will help to resolve the dns to ip
 
+# ============================================== #
 
 ## CACHE - SETUP ##
 # to decrease latency, load and bandwidth
@@ -77,6 +78,11 @@ server {
     #   server_name mynginx.com www.mynginx.com other.mynginx.com;
     server_name www.mynginx.com;
 
+    ## DEFAULT_TYPE ##
+    # by default is text/plain; and if your $uri has extension, it will adjust itself
+    # but if no, you need to adjust it manually
+    default_type application/json;
+
     ## ALLOW + DENY ##
     # restrict some IP
     allow 127.0.0.1;
@@ -87,7 +93,7 @@ server {
     error_log /var/log/nginx/mynginx.error.log;
 
     ## ERROR PAGE ##
-    error_page 400 403 404 500 503 /error;
+    error_page 400 403 404 500 502 503 /error;
     location = /error { 
         ## INTERNAL ##
         # tell that you can't access it from outside except from "error_page, index, random_index, and try_files"
@@ -96,10 +102,10 @@ server {
         # ex(off): http://www.mynginx.com/error (status:000)
         internal;
 
-        ## DEFAULT_TYPE ##
-        # by default is text/plain; and if your $uri has extension, it will adjust itself
-        # but if no, you need to adjust it manually
-        default_type html;
+        # we need this because
+        # 1. the $uri doesn't have .html in the end
+        # 2. we have already declare default_type at the beginning
+        default_type text/html;
 
         ## ALIAS ##
         # it will remap URL's location, but only ignoring pattern location
@@ -107,24 +113,33 @@ server {
     }
 
     ## IF ##
-    # note: you must read why "if is evil"
+    # please read: "if is evil in location context"
     if ($bad_agent) {
         ## RETURN ##
         # stop and return the status code to client (default: 302)
         # it can be combined with code, URL and text (see the syntax)
+
+        # this 403 won't use error_page due "if"
         return 403;
     }
 
     if ($bad_geo) {
+        # this 403 won't use error_page due "if"
         return 403;
     }
 
     ## LOCATION ##
+    # define how request should be process for each $uri
+    # the order isn't base on code but base on priority (from your modifier)
+    # please read: "location priority"
+    # ex:
+    #   http://www.mynginx.com/image/dog.png
+    #   getting 200 instead of 403
+
     # (/) is without modifier and will count as prefix
     location / {
         ## PROXY PASS ##
         # is reverse proxy
-        default_type application/json;
         proxy_pass "http://backend";
     }
 
@@ -171,28 +186,53 @@ server {
         try_files $uri $uri/ =404;
     }
 
+    ## REDIRECT ##
+    # redirect the request with new $uri
+    # you can determine the status code by determine these;
+    # - permanent / not
+    # - change method to GET / not
+    # please read: "redirect status code comparison"
+    # and don't use 302 anymore
+
     ## NESTED LOCATION ##
     # note: all child in nested must have parent path
     location /redirect {
         # replacing last path (last /) to assigned dest
-        # ex: http://www.mynginx.com/redirect/soft -> http://www.mynginx.com/redirect/john-doe -> http://www.mynginx.com/error (400)
+        # ex: 
+        #   http://www.mynginx.com/redirect/soft 
+        #   -> http://www.mynginx.com/redirect/john-doe 
+        #   -> http://www.mynginx.com/error (400)
+        # using 307
+        #   because we already know, this sample will go to 400, so 307 is fine.
+        #   307 will redirect with the same method.
         location /redirect/soft {
             return 307 "john-doe";
         }
 
         # replacing full path to assigned dest alongside with "query string" (by default no)
-        # ex: http://www.mynginx.com/redirect/hard?a=1&b=1 -> http://www.mynginx.com/name/john-doe?a=1&b=1
+        # ex: 
+        #   http://www.mynginx.com/redirect/hard?a=1&b=1 
+        #   -> http://www.mynginx.com/name/john-doe?a=1&b=1
+        # using 303
+        #   to prevent client accessing this new $uri without method GET.
+        #   you can test it by do postman with GET or POST method.
+        #   using 303 will lead success on both method, but
+        #   using 307 only success on GET method.
         location /redirect/hard {
-            return 307 "/name/john-doe$is_args$args";
+            return 303 "/name/john-doe$is_args$args";
         }
 
         # redirect temp to other page with modify "query string" (by default no)
-        # ex: http://mynginx/redirect/other?a=1&b=2 -> https://http.cat/?test=1-2
+        # ex:
+        #   http://mynginx/redirect/other?a=1&b=2
+        #   -> https://http.cat/?test=1-2
         location /redirect/other {
-            return 307 "https://http.cat?ab=$arg_a+$arg_b";
+            return 303 "https://http.cat?ab=$arg_a+$arg_b";
         }
 
         # redirect permanently to other page
+        #   301 = permanent redirect using method GET
+        #   308 = permanent redirect using origin method
         location /redirect/permanent {
             # try to switch the dest, then reload the nginx
             # the client "browser" might still cache the previous one
