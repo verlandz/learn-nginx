@@ -372,7 +372,7 @@ server {
 }
 
 # HTTP/HTTPS mynginx.com
-# this for redirect any mynginx.com to www.mynginx.com
+# redirect any mynginx.com to www.mynginx.com
 server {
     listen 80;
     listen [::]:80;
@@ -380,5 +380,7 @@ server {
     listen [::]:443 ssl;
     server_name mynginx.com;
 
-    return 301 "$scheme://www.$server_name$request_uri";
+    # 301 also possible,
+    # if you certain that all of the dest using GET.
+    return 308 "$scheme://www.$server_name$request_uri";
 }
