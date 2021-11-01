@@ -11,13 +11,14 @@ import (
 )
 
 var (
-	home_hit         = 0
-	name_hit         = 0
-	cache_hit        = 0
-	client_cache_hit = 0
-	rate_limit_hit   = 0
-	test_a, test_b   = 0, 0
-	http_port        = ""
+	home_hit               = 0
+	name_hit               = 0
+	cache_hit              = 0
+	client_cache_hit       = 0
+	rate_limit_hit         = 0
+	test_a_hit, test_b_hit = 0, 0
+	bad_request_hit        = 0
+	http_port              = ""
 )
 
 func init() {
@@ -69,17 +70,49 @@ func RateLimit(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func TestA(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	test_a++
-	s := fmt.Sprintf("TestA HIT - %v", test_a)
+	test_a_hit++
+	s := fmt.Sprintf("TestA HIT - %v", test_a_hit)
 	log.Println(s)
 	fmt.Fprintf(w, s)
 }
 
 func TestB(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	test_b++
-	s := fmt.Sprintf("TestB HIT - %v", test_b)
+	test_b_hit++
+	s := fmt.Sprintf("TestB HIT - %v", test_b_hit)
 	log.Println(s)
 	fmt.Fprintf(w, s)
+}
+
+func BadRequest(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	bad_request_hit++
+	s := fmt.Sprintf("BadRequest HIT - %v", bad_request_hit)
+	log.Println(s)
+
+	q := r.FormValue("q")
+	userID := r.Header.Get("X-USER-ID")
+	device := r.Header.Get("X-DEVICE")
+
+	// from query (q)
+	if q == "" {
+		http.Error(w, "query can't be empty", http.StatusBadRequest)
+		return
+	}
+
+	// from header (userID)
+	if userID == "" {
+		http.Error(w, "userID can't be empty", http.StatusBadRequest)
+		return
+	}
+
+	// from header (device)
+	if device == "" {
+		http.Error(w, "device can't be empty", http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(s))
+	return
 }
 
 // Main
@@ -97,6 +130,7 @@ func main() {
 	router.GET("/rate-limit", RateLimit)
 	router.GET("/test/a", TestA)
 	router.GET("/test/b", TestB)
+	router.GET("/bad-request", BadRequest)
 
 	log.Println("Listening to", http_port)
 	log.Fatal(http.ListenAndServe(http_port, router))
