@@ -1,3 +1,6 @@
+## TODO
+# naming location for different services and versioning
+
 ### DISCLAIMER ###
 # this configuration for testing purpose only
 # - any changes need to be reloaded (nginx -s reload)
@@ -36,6 +39,40 @@ log_format mynginx  '$remote_addr - $remote_user [$time_local] [$status] $reques
 upstream backend {
     server 127.0.0.1:8080 max_fails=0;
     # server 127.0.0.1:8081 max_fails=0; #uncomment this for test loadbalancer
+
+
+    ## TODO (keepalive)
+    # for upstream (server)
+    # - keep_alive
+    # for downstream (client)
+    # - keepalive_requests -> ada default 1000
+    # - keepalive_timeout -> ada di nginx.conf dan ad default 75s
+    # - keepalive_time -> ada default 1h
+    # 
+    ## info
+    # each keepalive connection take some memory
+    # usually if between webservices <-> backend in 1 instance, it only took < 1ms,
+    # so it really low benefit.
+    #
+    ## question
+    # how about loadbalancer, will it become broken?
+    #
+    ## case
+    # cA to sA (keepalive, will stop in 3rd step)
+    # cB to sB (keepalive, long process)
+    # cA to sA (done)
+    # cC to sA (keepalive, long process)
+    #
+    # if cA to sA still persist, will cA still go to sA with same connection
+    # if cA to sA already done, will cA got to sB because last is cC to sA
+    #
+    ## link
+    # https://nginx.org/en/docs/http/ngx_http_core_module.html#keepalive_requests
+    # https://nginx.org/en/docs/http/ngx_http_core_module.html#keepalive_timeout
+    # http://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
+    # https://www.nginx.com/blog/tuning-nginx/
+    #
+    # also need proxy_http_version
 }
 
 ## MAP ##
@@ -91,6 +128,13 @@ server {
     ## LOG ##
     access_log /var/log/nginx/mynginx.access.log mynginx;
     error_log /var/log/nginx/mynginx.error.log;
+    
+    ## TODO (buffer write)
+    # can improve with "buffer" + "flush"
+    # http://nginx.org/en/docs/http/ngx_http_log_module.html
+    #
+    ## TODO (I/O)
+    # search the impact of I/O to the server
 
     ## ERROR PAGE ##
     error_page 400 403 404 500 502 503 /error;
